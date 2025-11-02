@@ -1,0 +1,5 @@
+{
+  "name": "Circle Perfection Detector",
+  "description": "A fun and simple mobile-friendly web application where users can draw a circle with their finger or mouse to see how perfect it is, receiving a percentage score based on geometric analysis.",
+  "requestFramePermissions": []
+}
