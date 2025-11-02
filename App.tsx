@@ -14,6 +14,7 @@ interface AnalysisResult {
 }
 
 type AppState = 'IDLE' | 'DRAWING' | 'ANALYZING' | 'RESULT';
+type CopyState = 'IDLE' | 'COPIED';
 
 // --- HELPER ICONS ---
 const RedoIcon: React.FC<{ className?: string }> = ({ className }) => (
@@ -22,9 +23,26 @@ const RedoIcon: React.FC<{ className?: string }> = ({ className }) => (
   </svg>
 );
 
+const ShareIcon: React.FC<{ className?: string }> = ({ className }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" className={className} viewBox="0 0 24 24" fill="currentColor">
+        <path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.66 1.34 3 3 3s3-1.34 3-3-1.34-3-3-3z" />
+    </svg>
+);
+
 const LoadingSpinner: React.FC = () => (
     <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-400"></div>
 );
+
+// --- HELPER FUNCTIONS ---
+const getStarRating = (score: number): string => {
+    const roundedScore = Math.round(score);
+    if (roundedScore >= 90) return '⭐⭐⭐⭐⭐';
+    if (roundedScore >= 75) return '⭐⭐⭐⭐☆';
+    if (roundedScore >= 60) return '⭐⭐⭐☆☆';
+    if (roundedScore >= 40) return '⭐⭐☆☆☆';
+    if (roundedScore >= 20) return '⭐☆☆☆☆';
+    return '☆☆☆☆☆';
+};
 
 // --- MAIN APP COMPONENT ---
 const App: React.FC = () => {
@@ -32,6 +50,7 @@ const App: React.FC = () => {
   const [points, setPoints] = useState<Point[]>([]);
   const [appState, setAppState] = useState<AppState>('IDLE');
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [copyStatus, setCopyStatus] = useState<CopyState>('IDLE');
 
   const getCoords = useCallback((event: React.MouseEvent | React.TouchEvent): Point | undefined => {
     const canvas = canvasRef.current;
@@ -93,6 +112,7 @@ const App: React.FC = () => {
     event.preventDefault();
     setAppState('DRAWING');
     setResult(null);
+    setCopyStatus('IDLE');
     const coords = getCoords(event);
     if (coords) {
       setPoints([coords]);
@@ -125,10 +145,27 @@ const App: React.FC = () => {
 
   }, [appState, points]);
   
+  const handleShare = useCallback(async () => {
+    if (!result) return;
+
+    const scoreFixed = result.score.toFixed(1);
+    const stars = getStarRating(result.score);
+    const shareText = `Perfect Circle 🎯 ${scoreFixed}%\n${stars}\nhttps://perfectcircle.app`;
+
+    try {
+        await navigator.clipboard.writeText(shareText);
+        setCopyStatus('COPIED');
+        setTimeout(() => setCopyStatus('IDLE'), 2000); // Reset after 2 seconds
+    } catch (err) {
+        console.error('Failed to copy text: ', err);
+    }
+  }, [result]);
+  
   const handleReset = useCallback(() => {
     setAppState('IDLE');
     setPoints([]);
     setResult(null);
+    setCopyStatus('IDLE');
   }, []);
 
   useEffect(() => {
@@ -232,13 +269,23 @@ const App: React.FC = () => {
 
             <div className="h-24 flex items-center justify-center mt-4">
               {appState === 'RESULT' && (
-                  <button 
-                      onClick={handleReset} 
-                      className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-8 rounded-full shadow-lg transition-all transform hover:scale-105"
-                  >
-                      <RedoIcon className="w-6 h-6"/>
-                      Try Again
-                  </button>
+                <div className="flex items-center justify-center gap-4">
+                    <button 
+                        onClick={handleReset} 
+                        className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all transform hover:scale-105"
+                    >
+                        <RedoIcon className="w-6 h-6"/>
+                        Try Again
+                    </button>
+                    <button
+                        onClick={handleShare}
+                        className="flex items-center gap-2 bg-green-500 hover:bg-green-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:scale-100 disabled:cursor-not-allowed"
+                        disabled={copyStatus === 'COPIED'}
+                    >
+                        <ShareIcon className="w-6 h-6" />
+                        {copyStatus === 'COPIED' ? 'Copied!' : 'Share'}
+                    </button>
+                </div>
               )}
             </div>
         </div>
