@@ -44,32 +44,7 @@ const getStarRating = (score: number): string => {
     return '☆☆☆☆☆';
 };
 
-// --- MAIN APP COMPONENT ---
-const App: React.FC = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [points, setPoints] = useState<Point[]>([]);
-  const [appState, setAppState] = useState<AppState>('IDLE');
-  const [result, setResult] = useState<AnalysisResult | null>(null);
-  const [copyStatus, setCopyStatus] = useState<CopyState>('IDLE');
-
-  const getCoords = useCallback((event: React.MouseEvent | React.TouchEvent): Point | undefined => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const rect = canvas.getBoundingClientRect();
-    let clientX, clientY;
-
-    if ('touches' in event.nativeEvent) {
-      clientX = event.nativeEvent.touches[0].clientX;
-      clientY = event.nativeEvent.touches[0].clientY;
-    } else {
-      clientX = (event as React.MouseEvent).clientX;
-      clientY = (event as React.MouseEvent).clientY;
-    }
-    
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  }, []);
-
-  const analyzeCircle = (path: Point[]): AnalysisResult | null => {
+const analyzeCircle = (path: Point[]): AnalysisResult | null => {
     if (path.length < 10) return null;
 
     // 1. Calculate the centroid (geometric center)
@@ -106,51 +81,86 @@ const App: React.FC = () => {
       center,
       radius: meanRadius,
     };
-  };
+};
 
+// --- MAIN APP COMPONENT ---
+const App: React.FC = () => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [points, setPoints] = useState<Point[]>([]);
+  const [appState, setAppState] = useState<AppState>('IDLE');
+  const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [copyStatus, setCopyStatus] = useState<CopyState>('IDLE');
+
+  const getCanvasCoordinates = useCallback((clientX: number, clientY: number): Point | undefined => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    return { x: clientX - rect.left, y: clientY - rect.top };
+  }, []);
+
+  const handleDrawing = useCallback((event: MouseEvent | TouchEvent) => {
+    if (event.cancelable) {
+        event.preventDefault();
+    }
+    const clientX = 'touches' in event ? event.touches[0].clientX : event.clientX;
+    const clientY = 'touches' in event ? event.touches[0].clientY : event.clientY;
+    const coords = getCanvasCoordinates(clientX, clientY);
+    if (coords) {
+        setPoints(prevPoints => [...prevPoints, coords]);
+    }
+  }, [getCanvasCoordinates]);
+
+  const handleEndDrawing = useCallback(() => {
+    window.removeEventListener('mousemove', handleDrawing);
+    window.removeEventListener('mouseup', handleEndDrawing);
+    window.removeEventListener('touchmove', handleDrawing);
+    window.removeEventListener('touchend', handleEndDrawing);
+
+    setPoints(currentPoints => {
+        if (currentPoints.length < 10) {
+            setAppState('IDLE');
+            setResult(null);
+            return [];
+        }
+        
+        setAppState('ANALYZING');
+        setTimeout(() => { // Simulate analysis time for UX
+            const analysis = analyzeCircle(currentPoints);
+            setResult(analysis);
+            setAppState('RESULT');
+        }, 500);
+
+        return currentPoints;
+    });
+  }, [handleDrawing]);
+  
   const handleStartDrawing = useCallback((event: React.MouseEvent | React.TouchEvent) => {
     event.preventDefault();
     setAppState('DRAWING');
     setResult(null);
     setCopyStatus('IDLE');
-    const coords = getCoords(event);
+
+    const nativeEvent = event.nativeEvent;
+    const clientX = 'touches' in nativeEvent ? nativeEvent.touches[0].clientX : (event as React.MouseEvent).clientX;
+    const clientY = 'touches' in nativeEvent ? nativeEvent.touches[0].clientY : (event as React.MouseEvent).clientY;
+    
+    const coords = getCanvasCoordinates(clientX, clientY);
     if (coords) {
       setPoints([coords]);
     }
-  }, [getCoords]);
 
-  const handleDrawing = useCallback((event: React.MouseEvent | React.TouchEvent) => {
-    if (appState !== 'DRAWING') return;
-    event.preventDefault();
-    const coords = getCoords(event);
-    if (coords) {
-      setPoints(prevPoints => [...prevPoints, coords]);
-    }
-  }, [appState, getCoords]);
-
-  const handleEndDrawing = useCallback(() => {
-    if (appState !== 'DRAWING' || points.length < 10) {
-      setAppState('IDLE');
-      setPoints([]);
-      setResult(null);
-      return;
-    }
-    setAppState('ANALYZING');
-    
-    setTimeout(() => { // Simulate analysis time for UX
-        const analysis = analyzeCircle(points);
-        setResult(analysis);
-        setAppState('RESULT');
-    }, 500);
-
-  }, [appState, points]);
+    window.addEventListener('mousemove', handleDrawing);
+    window.addEventListener('mouseup', handleEndDrawing);
+    window.addEventListener('touchmove', handleDrawing, { passive: false });
+    window.addEventListener('touchend', handleEndDrawing);
+  }, [getCanvasCoordinates, handleDrawing, handleEndDrawing]);
   
   const handleShare = useCallback(async () => {
     if (!result) return;
 
     const scoreFixed = result.score.toFixed(1);
     const stars = getStarRating(result.score);
-    const shareText = `Perfect Circle 🎯 ${scoreFixed}%\n${stars}\nhttps://perfectcircle.app`;
+    const shareText = `Perfect Circle 🎯 ${scoreFixed}%\n${stars}\nTry it yourself!`;
 
     try {
         await navigator.clipboard.writeText(shareText);
@@ -219,6 +229,16 @@ const App: React.FC = () => {
       ctx.fill();
     }
   }, [points, result, appState]);
+  
+  // Cleanup effect in case component unmounts while drawing
+  useEffect(() => {
+    return () => {
+        window.removeEventListener('mousemove', handleDrawing);
+        window.removeEventListener('mouseup', handleEndDrawing);
+        window.removeEventListener('touchmove', handleDrawing);
+        window.removeEventListener('touchend', handleEndDrawing);
+    };
+  }, [handleDrawing, handleEndDrawing]);
 
   const renderStatusMessage = () => {
     const messageContainerClasses = "flex items-center justify-center text-center h-24 transition-opacity duration-300";
@@ -257,12 +277,7 @@ const App: React.FC = () => {
                 <canvas
                     ref={canvasRef}
                     onMouseDown={handleStartDrawing}
-                    onMouseMove={handleDrawing}
-                    onMouseUp={handleEndDrawing}
-                    onMouseLeave={handleEndDrawing}
                     onTouchStart={handleStartDrawing}
-                    onTouchMove={handleDrawing}
-                    onTouchEnd={handleEndDrawing}
                     className="absolute top-0 left-0 w-full h-full cursor-crosshair"
                 />
             </div>
